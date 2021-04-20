@@ -5,9 +5,9 @@ import sys
 import os
 import re
 
-PIXELS_AS_OBJECTS = True    # Set to True to generate PDF or HTML simulations that include the drawn path
+PIXELS_AS_OBJECTS = False    # Set to True to generate PDF or HTML simulations that include the drawn path
 TCP_KEEP_TANGENCY = False    # Set to True to keep the tangency along the path
-SIZE_BOARD = [300, 600]     # Size of the image. The image will be scaled keeping its aspect ratio
+SIZE_BOARD = [50, 100]     # Size of the image. The image will be scaled keeping its aspect ratio
 MM_X_PIXEL = 1             # in mm. The path will be cut depending on the pixel size. If this value is changed it is recommended to scale the pixel object
 IMAGE_FILE = 'World map.svg'             # Path of the SVG image, it can be relative to the current RDK station
 
@@ -48,26 +48,19 @@ def svg_draw_quick(svg_img, board, pix_ref):
 def svg_draw_robot(svg_img, board, pix_ref, item_frame, item_tool, robot):
     """Draws the image with the robot. It is slower that svg_draw_quick but it makes sure that the image can be drawn with the robot."""
 
-    APPROACH = 100  # approach distance in MM for each path    
-    home_joints = robot.JointsHome().tolist() #[0,0,0,0,90,0] # home joints, in deg
-    if abs(home_joints[4]) < 5:
-        home_joints[4] = 90.0
+    APPROACH = 2  # approach distance in MM for each path    
+    home_joints = [-144.700431, -60.204293, 103.198570, -99.897231, 53.177811, 38.494197]
     
     robot.setPoseFrame(item_frame)
     robot.setPoseTool(item_tool)
-    robot.MoveJ(home_joints)
-    
+
     # get the target orientation depending on the tool orientation at home position
     #orient_frame2tool = invH(item_frame.Pose())*robot.SolveFK(home_joints)*item_tool.Pose()
     orient_frame2tool = roty(pi) #alternative:
     orient_frame2tool[0:3,3] = Mat([0,0,0])
     
-        
-
     for path in svg_img:
         # use the pixel reference to set the path color, set pixel width and copy as a reference
-        print('Drawing %s, RGB color = [%.3f,%.3f,%.3f]'%(path.idname, path.fill_color[0], path.fill_color[1], path.fill_color[2]))
-        pix_ref.Recolor(path.fill_color)
         if PIXELS_AS_OBJECTS:
             pix_ref.Copy()
         np = path.nPoints()
@@ -78,18 +71,16 @@ def svg_draw_robot(svg_img, board, pix_ref, item_frame, item_tool, robot):
         target0_app = target0*transl(0,0,-APPROACH)
         robot.MoveL(target0_app)
 
-        #if TCP_KEEP_TANGENCY:
-        #    joints_now = robot.Joints().tolist()
-        #    joints_now[5] = -180
-        #    robot.MoveJ(joints_now)
-        RDK.RunMessage('Drawing %s' % path.idname);
-        RDK.RunProgram('SetColorRGB(%.3f,%.3f,%.3f)' % (path.fill_color[0], path.fill_color[1], path.fill_color[2]))
+        if TCP_KEEP_TANGENCY:
+            joints_now = robot.Joints().tolist()
+            joints_now[5] = -180
+            robot.MoveJ(joints_now)
+ 
         for i in range(np):
             p_i = path.getPoint(i)
             v_i = path.getVector(i)       
-
             pt_pose = point2D_2_pose(p_i, v_i)
-            
+   
             if TCP_KEEP_TANGENCY:
                 #moving the tool along the path (axis 6 may reach its limits)                
                 target = pt_pose*orient_frame2tool 
@@ -98,7 +89,7 @@ def svg_draw_robot(svg_img, board, pix_ref, item_frame, item_tool, robot):
                 target = transl(p_i.x, p_i.y, 0)*orient_frame2tool
 
             # Move the robot to the next target
-            robot.MoveL(target)
+            robot.MoveJ(target)
 
             # create a new pixel object with the calculated pixel pose
             if PIXELS_AS_OBJECTS:
@@ -114,28 +105,12 @@ def svg_draw_robot(svg_img, board, pix_ref, item_frame, item_tool, robot):
 #--------------------------------------------------------------------------------
 # Program start
 RDK = Robolink()
-
-# locate and import the svgpy module
-# Old versions of RoboDK required adding required paths to the process path
-# New versions of RoboDK automatically add the current folder to the path (after 4.2.2)
 path_stationfile = RDK.getParam('PATH_OPENSTATION')
-#sys.path.append(os.path.abspath(path_stationfile)) # temporary add path to import station modules
-#print(os.getcwd())
-#print(os.environ['PYTHONPATH'].split(os.pathsep))
-#print(os.environ['PATH'].split(os.pathsep))
-
 
 from svgpy.svg import *
 
 # select the file to draw
-svgfile = IMAGE_FILE
-if len(svgfile) == 0:
-    svgfile = getOpenFile()
-elif not FileExists(svgfile):
-    svgfile = path_stationfile + '/' + svgfile
-    
-#svgfile = path_stationfile + '/World map.svg'
-#svgfile = path_stationfile + '/en streg.svg'
+svgfile = path_stationfile + '/Camillas tegning.svg'
 
 # import the SVG file
 svgdata = svg_load(svgfile)
@@ -147,7 +122,7 @@ size_img = svgdata.size_poly()  # returns the size of the current polygon
 # get the robot, frame and tool objects
 robot = RDK.ItemUserPick('', ITEM_TYPE_ROBOT)
 framedraw = RDK.Item('Frame draw')
-tooldraw = RDK.Item('Tool')
+tooldraw = RDK.Item('Gripper')
 
 # get the pixel reference to draw
 pixel_ref = RDK.Item('Ellipse')
@@ -157,13 +132,7 @@ image = RDK.Item('Board & image')
 if image.Valid() and image.Type() == ITEM_TYPE_OBJECT: image.Delete()
 
 # make a drawing board base on the object reference "Blackboard 250mm"
-board_1m = RDK.Item('Blackboard 250mm')
-board_1m.Copy()
-board_draw = framedraw.Paste()
-board_draw.setVisible(False, True)
-board_draw.setName('Board & image')
-board_draw.Scale([size_img.x/2500, size_img.y/2500, 1]) # adjust the board size to the image size (scale)
-
+board_draw = RDK.Item('Top')
 pixel_ref.Copy()
 
 # quickly show the final result without checking the robot movements:
